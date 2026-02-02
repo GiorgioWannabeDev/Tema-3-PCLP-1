@@ -1,0 +1,125 @@
+#CHELES Giorgio, 312CB
+
+--History functionality--
+
+In order to implement the undo/redo system, a stack made up of snapshots that
+contain l-system, image and font is being used. Since we strive to keep memory
+usage to a minimum the implementation uses a hybrid shallow copy/hard copy
+approach. The element(s) that will be altered after calling an undoable command
+are hard copied from the previous entry, then modified accordingly, the rest
+are shallow copied, meaning only the variables are copied, pointers continue
+to point to the same addresses as the previous entry.
+
+UNDO - decrement the position in the stack unless its the first position.
+REDO - increment the position in the stack unless its the last position and
+       print confirmation message.
+
+If user undoes action(s) and then enters an undoable command, the stack is
+cleared after the current position, thus last position is set to the current
+position.
+
+Moreover, every snapshot has a code that indicates what action was last
+performed, thus allowing to reprint confirmation messages when redoing, and
+every element has a code that indicates if it empty, the original element,
+or shallow copied over from the previous snapshot. Encoding like this enables
+us to accordingly free memory during and at the end of the program.
+
+--L-system implementation--
+
+L-system are stored as a struct comprised of an axiom, an array of rules (a 
+rule is a pair of a character and a character array), a number of rules, and
+the name of the source file.
+
+LSYSTEM <file> - Read L-system data from the specified file.
+
+DERIVE <n> - Iterate through L-system axiom n times, each time replacing every
+             character that can also be found in the rules array with its
+             corresponding successor then print the result. The axiom is not
+             modified after this action.
+
+--Turtle graphics implementation--
+
+An image is a struct that contains: width, height, pixel matrix, name of source
+file.
+A pixel contains three bytes that define R, G, B values.
+
+LOAD <file> - Read image from the specified file. Since all input files are
+              binary, a special approach is being used to reading the raster:
+              the matrix of pixels is actually a width * height sized vector
+              that has a pointers pointing to every <width> pixels. Using this
+              we can read the image raster in one go, without iterating through
+              height and width.
+              Observation: Since the raster is one continous string of 0s and
+              1s we must ensure that the pixel is packed, meaning it doesnt
+              contain any padding junk. 
+
+SAVE <file> - Save the image in the specified file using the PPM format, with
+              a P6 header which means binary mode.
+
+TURTLE <x> <y> <step> <orientation> <orientation_step> <n> <R> <G> <B> - The
+    very first step is to get the nth derivation of the loaded L-system (If 
+    L-system is not present then we do nothing). The so called "turtle" is set
+    at (x, y) position, with its starting angle set to orientation. Next, a
+    turtle stack is created that will contain a history of user saved positions
+    and angles. Iterate through the derivation character by character and based
+    on it we perform the following actions:
+
+    F - We move the turtle forward by incrementing x and y using the following
+        formulas: x += step * cos(orientation), y = step * sin(orientation).
+        After the turtle is moved we draw a line between the turtle's previous
+        position and its new position using a draw line function. The draw line
+        function contains the draw pixel function that checks if the desired
+        position to draw is out of bound or not. Using the RGB values, the
+        pixel is set to the appropriate value.
+    + - Increment the orientation with orientation step
+    - - Decrement the orientation with orientation step
+    [ - Add the corrent position and angle to the turtle stack
+    ] - Get the last position and angle from the stack, load it into the turtle
+        and pop that entry.
+    other - Do nothing
+
+At the very end, the turtle stack is cleared.
+
+--Font implementation--
+
+A font is a struct that contains: font name, name of source file, number of
+glyphs and an array of glyphs.
+A glyph is a struct that contains: glyph name, character code, width, height,
+x bounding box offset, y bounding box offset, x cursor offset, y cursor offset,
+glyph bitmap.
+
+FONT <file> - Read the font from the specified file. The file format used is
+              BDF, thus we read every file line, extract the first word, check
+              if we need the attribute the word describes and store it. Since
+              the file format allows user some flexibility, meaning the
+              attributes can be written in any order, we cannot create a simple
+              read function, instead we have to iterate through a registry of
+              keywords of interest. The glyph is encoded in hexadecimals after
+              the BITMAP keyword. We read <height> rows, two hexadecimals
+              values at a time and place them in the bitmap matrix, whose width
+              is rounded to the next multiple of 8 (to accomodate the 8 bits in
+              two hexadecimal digits)
+
+TYPE "<string>" <start_x> <start_y> <R> <G> <B> - Iterate through the <string>
+    characters, search the character in the loaded font, and start drawing the
+    bitmap on the loaded image from cursor_position + (x bounding box offset,
+    y bounding box offset), which is the bottom left corner of the glyph, to
+    the top left, iterating through every pixel on the bitmap. One a glyph is
+    written, the cursor is incremented cursor_position += (x cursor offset, y
+    cursor offset), thus allowing the next glyph to be written.
+
+--Bitcheck implementation--
+
+In order to identify 0010 and 1101 sequences in our series of 1s and 0s, 30
+bits are analysed at a time. bits 0-2 are the last three bits of the previous
+pixel, bits 3-26 are the current pixel's that is analysed whether it is at risk
+of being misread or not, bits 27-29 are the first three bits of the next pixel.
+We iterate through the pixels of the image, and at each step we extract the
+binary data into our 30 elements long array of analyzed bits. Regarding the
+edge cases where there is no last or next pixel, we simply ignore them when
+analyzing. Taking 4 bits at a time allows us to check for the sought sequences,
+and once we find one, we assess if changing 0010 to 0000 or 1101 to 1111 will
+change our current pixel. If yes, we print the warning message. We then
+scanning until we cant no more.
+
+
